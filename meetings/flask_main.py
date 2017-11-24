@@ -3,6 +3,8 @@ from flask import render_template
 from flask import request
 from flask import url_for
 import uuid
+import arrow
+import pendulum
 
 import json
 import logging
@@ -67,6 +69,49 @@ def choose():
     gcal_service = get_gcal_service(credentials)
     app.logger.debug("Returned from get_gcal_service")
     flask.g.calendars = list_calendars(gcal_service)
+    return render_template('index.html')
+
+
+@app.route('/get_times' , methods=['GET', 'POST'])
+def check():
+    flask.g.results = []
+    calendar = flask.request.form.getlist("check")
+    flask.session["cal_ids"] = calendar
+    credentials = valid_credentials()
+    app.logger.debug('CHECKED BOXES: {}'.format(calendar))
+    gcal_service = get_gcal_service(credentials)
+
+    #Pendulum stuff
+    begin_d = pendulum.parse(flask.session['begin_date'])
+    end_d = pendulum.parse(flask.session['end_date'])
+    time_start = time_parse(flask.session['begin_time'])
+    time_end = time_parse(flask.session['end_time'])
+    period = pendulum.period(begin_d, end_d)
+    tuple_array = []
+
+    for dt in period.range('days'):
+        start = dt.copy().add(hours=time_start[0], minutes=time_start[1])
+        end = dt.copy().add(hours=time_end[0], minutes=time_end[1])
+        tuple_array.append((start, end))
+
+    page_token = None
+    while True:
+        events = gcal_service.events().list(calendarId=calendar[0], pageToken=page_token).execute()
+        for event in events['items']:
+            if (('end' in event) and ('start' in event)):
+                if ('dateTime' in event['end'])and('dateTime' in event['start']):
+                    check1 = pendulum.parse(event['start']['dateTime'])
+                    check2 = pendulum.parse(event['end']['dateTime'])
+                    if pendulum.period(check1, check2).intersect(pendulum.period(begin_d,end_d)):
+                        for tup in tuple_array:
+                            if check1.between(tup[0], tup[1], False) or check2.between(tup[0], tup[1], False):
+                                flask.g.results.append("Busy between {} and {}".format(check1.to_day_datetime_string(), check2.to_day_datetime_string()))
+                                print("RESULT ADDED")
+
+
+        page_token = events.get('nextPageToken')
+        if not page_token:
+            break
     return render_template('index.html')
 
 ####
@@ -194,11 +239,19 @@ def setrange():
     app.logger.debug("Entering setrange")  
     flask.flash("Setrange gave us '{}'".format(
       request.form.get('daterange')))
+
     daterange = request.form.get('daterange')
+    timestart = request.form.get('timestart')
+    timeend = request.form.get('timeend')
+
     flask.session['daterange'] = daterange
+    flask.session['begin_time'] = timestart
+    flask.session['end_time'] = timeend
+
     daterange_parts = daterange.split()
     flask.session['begin_date'] = interpret_date(daterange_parts[0])
     flask.session['end_date'] = interpret_date(daterange_parts[2])
+
     app.logger.debug("Setrange parsed {} - {}  dates as {} - {}".format(
       daterange_parts[0], daterange_parts[1], 
       flask.session['begin_date'], flask.session['end_date']))
@@ -283,7 +336,11 @@ def next_day(isotext):
 #  Functions (NOT pages) that return some information
 #
 ####
-  
+
+def time_parse(string):
+
+    return(int(string[0:2]), int(string[3:5]))
+
 def list_calendars(service):
     """
     Given a google 'service' object, return a list of
@@ -306,7 +363,6 @@ def list_calendars(service):
         # Optional binary attributes with False as default
         selected = ("selected" in cal) and cal["selected"]
         primary = ("primary" in cal) and cal["primary"]
-        
 
         result.append(
           { "kind": kind,
@@ -315,8 +371,8 @@ def list_calendars(service):
             "selected": selected,
             "primary": primary
             })
-    return sorted(result, key=cal_sort_key)
 
+    return sorted(result, key=cal_sort_key)
 
 def cal_sort_key( cal ):
     """

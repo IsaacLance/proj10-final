@@ -53,8 +53,14 @@
   {% endif %}
 {% endwith %}
 
-<h2>Date range</h2>
+<h2>Date and Time range</h2>
+  
   <form action="/setrange" method="post">
+  Start time: <input type="time" name="timestart" value="09:00" size="12">
+  </select>
+  End time: <input type="time" name="timeend" value="17:00" size="12">
+  </select>
+  
   <input type="text" name="daterange" size="12"
     {% if session.daterange is defined %}
          value="{{session.daterange}}"
@@ -79,6 +85,7 @@
     });
   </script>
 
+
 <br /><input type="submit" value="Choose" />
 </form>
 
@@ -89,18 +96,35 @@
     prefer down then across). 
     -->
 {% if g.calendars is defined  %}
+<form method ="POST" action="/get_times" id="get_times" name="events_list">
+	<fieldset>
+	<legend> Choose Calendars </legend>
   <div class="row">
   {% for cal in g.calendars if cal.selected %}
-          <div class="col-md-4">
-	   {{ cal.summary }}
+          
+		<div class="col-md-4">
+		<input type="checkbox" id="{{ cal.summary }}" name="check" value="{{ cal.id }}">
+		<label for ="{{ cal.summary }}" > {{ cal.summary}} </label>
+		
           </div>
          {% if loop.index is divisibleby 3 %}
           </div> <div class="row">
          {% endif %}
   {% endfor %}
   </div>
+  <input type="submit" value="submit"/>
+	
+  <fieldset>
+  </form>
 {% endif %}
-    
 
+{% if g.results is defined %}
+	<h1>Results:</h1>
+	<p id='results'></p>
+	{% for result in g.results %}
+            <p>{{ result }}</p>
+	{% endfor %}
+{% endif %}   
+</textarea>
   </div>  <!-- container (for bootstrap) -->
   </body> </html>
