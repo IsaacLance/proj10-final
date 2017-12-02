@@ -1,4 +1,4 @@
-# proj8-Gcal
+# proj10-final
 Snarf appointment data from a selection of a user's Google calendars 
 
 ## What is here
