@@ -3,13 +3,12 @@ from flask import render_template
 from flask import request
 from flask import url_for
 import uuid
-import arrow
 import pendulum
-
+import timeCalc
 import json
 import logging
 
-# Date handling 
+# Date handling
 import arrow # Replacement for datetime, based on moment.js
 # import datetime # But we still need time
 from dateutil import tz  # For interpreting local times
@@ -19,7 +18,7 @@ from dateutil import tz  # For interpreting local times
 from oauth2client import client
 import httplib2   # used in oauth2 flow
 
-# Google API for services 
+# Google API for services
 from apiclient import discovery
 
 ###
@@ -74,44 +73,106 @@ def choose():
 
 @app.route('/get_times' , methods=['GET', 'POST'])
 def check():
+    calendars = flask.request.form.getlist("check")
+    flask.session["cal_ids"] = calendars
+    app.logger.debug('CHECKED BOXES: {}'.format(calendars))
+
     flask.g.results = []
-    calendar = flask.request.form.getlist("check")
-    flask.session["cal_ids"] = calendar
+    if len(calendars) == 0:
+        flask.g.results.append("You didn't select any calendars, yah goof!")
+        return render_template('index.html')
+
     credentials = valid_credentials()
-    app.logger.debug('CHECKED BOXES: {}'.format(calendar))
     gcal_service = get_gcal_service(credentials)
 
     #Pendulum stuff
+    pend_now = pendulum.now()
+    pend_now.to_rfc3339_string()
+
     begin_d = pendulum.parse(flask.session['begin_date'])
     end_d = pendulum.parse(flask.session['end_date'])
     time_start = time_parse(flask.session['begin_time'])
     time_end = time_parse(flask.session['end_time'])
     period = pendulum.period(begin_d, end_d)
-    tuple_array = []
+    tuple_array = [] #Each tuple represents a day
+
 
     for dt in period.range('days'):
         start = dt.copy().add(hours=time_start[0], minutes=time_start[1])
         end = dt.copy().add(hours=time_end[0], minutes=time_end[1])
         tuple_array.append((start, end))
+        busy_array = []
+
+    for tup in tuple_array:
+        busy_array.append([])  # append a list for each day, which will contain tuples. So its a list(busy) of lists(day) of tuples(check1, check2)
 
     page_token = None
     while True:
-        events = gcal_service.events().list(calendarId=calendar[0], pageToken=page_token).execute()
+        events = gcal_service.events().list(
+            calendarId=calendars[0], orderBy="startTime", singleEvents=True, timeMin=pend_now, pageToken=page_token).execute()
         for event in events['items']:
             if (('end' in event) and ('start' in event)):
-                if ('dateTime' in event['end'])and('dateTime' in event['start']):
+                if ('dateTime' in event['end'])and('dateTime' in event['start']): #Check if event has valid values
                     check1 = pendulum.parse(event['start']['dateTime'])
                     check2 = pendulum.parse(event['end']['dateTime'])
-                    if pendulum.period(check1, check2).intersect(pendulum.period(begin_d,end_d)):
-                        for tup in tuple_array:
-                            if check1.between(tup[0], tup[1], False) or check2.between(tup[0], tup[1], False):
-                                flask.g.results.append("Busy between {} and {}".format(check1.to_day_datetime_string(), check2.to_day_datetime_string()))
-                                print("RESULT ADDED")
+                    for n in range(len(tuple_array)):
+                        if check1.between(tuple_array[n][0], tuple_array[n][1], False) or check2.between(tuple_array[n][0], tuple_array[n][1], False):
+                            busy_array[n].append((check1, check2)) #The recently added list has busy time tuples added to it
+                            print("RESULT ADDED")
 
 
         page_token = events.get('nextPageToken')
         if not page_token:
             break
+    for day in busy_array:
+        print("DAY")
+        for tup in day:
+            print("{} to {}".format(tup[0].to_day_datetime_string(), tup[1].to_day_datetime_string()))
+
+    for n in range(len(tuple_array)): #Each loop is a day
+        print()
+        #choose to print Free or busy time first, then go until end.
+        day_start = tuple_array[n][0]
+        day_end = tuple_array[n][1]
+        #print('PRINTING')
+        #print('{} = {}'.format(len(tuple_array), len(busy_array)))
+        day_tuples = busy_array[n]
+        #handle first/last one
+        skip_bool = 0      # skip_bool = False I realized I can use a C style boolean to make the next part easy
+        ##Check if empty
+        if len(day_tuples) == 0:
+            print("day_tuples is empty")
+            flask.g.results.append('Free between {} and {}'.format(day_start.to_day_datetime_string(),
+                                                                   day_end.to_day_datetime_string()))
+            continue
+        #day start
+        if day_start < day_tuples[0][0]: #Is there free time between the start of the day and the first busy time
+            flask.g.results.append('Free between {} and {}'.format(day_start.to_day_datetime_string(),
+                                                                   day_tuples[0][0].to_day_datetime_string()))
+
+            print("skip_bool = 0")
+        else:
+            skip_bool = 1
+            print("skip_bool = 1")
+            flask.g.results.append('Busy between {} and {}'.format(day_tuples[0][0].to_day_datetime_string(),
+                                                                   day_tuples[0][1].to_day_datetime_string()))
+        ##day end
+        tail_result = ''
+        if day_end > day_tuples[-1][1]: #If there is free time between the last busy time and the end of the day
+            print("tail created")
+            tail_result = 'Free between {} and {}'.format(day_tuples[-1][1].to_day_datetime_string(),
+                                                          day_end.to_day_datetime_string())
+
+        for x in range(skip_bool, len(day_tuples)):      #for range_tuple in day_tuples[skip_bool:-1]:
+            flask.g.results.append('Busy between {} and {}'.format(day_tuples[x][0].to_day_datetime_string(),
+                                                                   day_tuples[x][1].to_day_datetime_string()))
+            if (x+1) <= (len(day_tuples) - 1):
+                if day_tuples[x][1] < day_tuples[x+1][0]: # Add free time if the next busy time doesn't overlap
+                    flask.g.results.append('Free between {} and {}'.format(day_tuples[x][1].to_day_datetime_string(),
+                                                                               day_tuples[x+1][0].to_day_datetime_string()))
+
+        flask.g.results.append(tail_result)
+
     return render_template('index.html')
 
 ####
