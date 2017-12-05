@@ -115,7 +115,7 @@ def add_meeting():
     })
     emailer.new_meeting(emailaddr, meeting_id, meeting_pw)
     #Now they need to go log in to their meeting
-    return flask.redirect(flask.url_for('meeting_login_prompt'))
+    return flask.redirect(flask.url_for('meeting'))
 
 @app.route('/meeting_login_prompt', methods=['POST', 'GET'])
 def meeting():
@@ -165,9 +165,11 @@ def setrange():
     timestart = request.form.get('timestart')
     timeend = request.form.get('timeend')
 
+
     flask.session['daterange'] = daterange
     flask.session['begin_time'] = timestart
     flask.session['end_time'] = timeend
+    flask.session['length'] = request.form.get('length')
 
     daterange_parts = daterange.split()
     flask.session['begin_date'] = interpret_date(daterange_parts[0])
@@ -181,16 +183,14 @@ def setrange():
     end_d = pendulum.parse(flask.session['end_date'])
     time_start = time_parse(flask.session['begin_time'])
     time_end = time_parse(flask.session['end_time'])
-
+    length = flask.session['length']
+    cap = flask.request.form.get('cap')
     meetings.update_one({"meeting_id": flask.session["meeting_id"]},
                         {"$set": {"range": [begin_d.to_rfc3339_string(), end_d.to_rfc3339_string(),
-                                            time_start, time_end]}}
+                                            time_start, time_end, length, cap]}}
                         )
     meeting = meetings.find_one({'meeting_id': flask.session['meeting_id']})
     #test it is stored correctly
-    pendform = pendulum.parse(meeting["range"][0])
-    print(type(meeting['range'][0]))
-    print(pendform.to_day_datetime_string())
     return flask.render_template("meeting.html")
 
 @app.route('/invite', methods=['POST'])
@@ -272,8 +272,6 @@ def check():
 
     credentials = valid_credentials()
     gcal_service = get_gcal_service(credentials)
-    #get meeting
-    meeting = meetings.find_one({'meeting_id': flask.session['meeting_id']})
     #Pendulum stuff
     pend_now = pendulum.now()
     pend_now.to_rfc3339_string()
@@ -305,6 +303,18 @@ def check():
 
 @app.route('/process_times' , methods=['GET', 'POST'])
 def process():
+    # get meeting
+    meeting = meetings.find_one({'meeting_id': flask.session['meeting_id']})
+    busy_tuples = meeting['busy_times']
+    begin_d = pendulum.parse(meeting['range'][0])
+    end_d = pendulum.parse(meeting['range'][1])
+    day_start = meeting['range'][2]
+    day_end = meeting['range'][3]
+    increment = meeting['range'][4]
+    cap = meeting['range'][5]
+
+
+
     return
 
 

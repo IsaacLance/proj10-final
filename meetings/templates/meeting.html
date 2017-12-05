@@ -45,10 +45,14 @@
 <h2>Date and Time range</h2>
   
   <form action="/setrange" method="post">
-  Start time: <input type="time" name="timestart" value="09:00" size="12">
+  Length (minutes): <input type='number' name='length' value='30' size='12'/>
+  Viable Number of missing persons: <input type='number' name='cap' value=0>
+  <br>
+  Start time: <input type="time" name="timestart" value="09:00" size="12"/>
   </select>
-  End time: <input type="time" name="timeend" value="17:00" size="12">
+  End time: <input type="time" name="timeend" value="17:00" size="12"/>
   </select>
+
   
   <input type="text" name="daterange" size="12"
     {% if session.daterange is defined %}
@@ -103,7 +107,7 @@ only addresses and newlines please!"></textarea>
 <form method ='POST' action='/add_meeting' id='add_meeting' name='meeting_info'>
 	Your email: <input type='text' name='email'><br>
 	Meeting Name: <input type='text' name='meeting_id'><br>
-	Meeting Password: <input type='text' name='meeting_pw'><br>
+	Meeting Password: <input type='password' name='meeting_pw'><br>
 	<input type='submit' value='Submit'><br>
 </form>
 {% endif %}
@@ -119,7 +123,7 @@ only addresses and newlines please!"></textarea>
 <h3>Sign in to your meeting.<h3>
 <form method ='POST' action='/meeting_sign_in' id='msign_in' name='msign_in'>
 	Meeting Name: <input type='text' name='meeting_id'><br>
-	Meeting Password: <input type='text' name='meeting_pw'><br>
+	Meeting Password: <input type='password' name='meeting_pw'><br>
 	<input type='submit' value='Submit'><br>
 	</form>
 {% endif %}
