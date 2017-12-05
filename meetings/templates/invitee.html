@@ -35,19 +35,50 @@
 <body>
 <div class="container">
 
-<h1>Doogle&trade;</h1>
-<h2>What would you like to do?<h2>
-<form method='POST' action='/new'>
-	<input type='submit' value="New Organizer" align ='left'>
+<!-- Always provide a logout button to wipe some session variables -->
+<h1>Doogle</h1>
+{% if session['meeting_id'] is defined %}
+<h4>Responding to: "{{ session['meeting_id']  }}" as invitee.<h4>
+<form method ='POST' action='/inv_logout' id ='logout' name='logout_form'>
+	<input type='submit' value="Log Out" align ='top' style="font-size:12px; height:20px; width:60px">
 </form>
+{% endif %}
+<!-- Login screen -->
+{% if g.login_invitee is defined %}
+	{% if g.iderror is defined %}
+	Meeting not found.
+	{% endif %}
+<h3>Enter meeting id.<h3>
+<form method ='POST' action='/invitee_sign_in' id='isign_in' name='isign_in'>
+	Meeting Name: <input type='text' name='meeting_id'><br>
+	<input type='submit' value='Submit'><br>
+	</form>
+{% endif %}
 
-<form method='POST' action='/organizer'>
-	<input type='submit' value="Returning Organizer" align ='middle'>
-</form>
-
-<form method='POST' action='/invitee'>
-	<input type='submit' value="Invitee" align ='right'>
-</form>
-
+{% if g.calendars is defined  %}
+<form method ="POST" action="/push_times" id="get_times" name="events_list">
+	<fieldset>
+	<legend> Choose Calendars </legend>
+  <div class="row">
+  {% for cal in g.calendars if cal.selected %}
+          
+		<div class="col-md-4">
+		<input type="checkbox" id="{{ cal.summary }}" name="check" value="{{ cal.id }}">
+		<label for ="{{ cal.summary }}" > {{ cal.summary}} </label>
+		
+          </div>
+         {% if loop.index is divisibleby 3 %}
+          </div> <div class="row">
+         {% endif %}
+  {% endfor %}
+  </div>
+  <input type="submit" value="submit"/>
+	
+  <fieldset>
+  </form>
+{% endif %}
+{% if g.thanks is defined %}
+Thanks!
+{% endif %}
   </div>  <!-- container (for bootstrap) -->
   </body> </html>

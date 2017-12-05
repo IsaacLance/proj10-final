@@ -1,4 +1,5 @@
 import pendulum
 
-def calc_available(busy_times_tuple_list, ):
-    return
+def time_parse(string):
+
+    return(int(string[0:2]), int(string[3:5]))

@@ -41,7 +41,7 @@
 <form method ='POST' action='/logout' id ='logout' name='logout_form'>
 	<input type='submit' value="Log Out" align ='top' style="font-size:12px; height:20px; width:60px">
 </form>
-
+<!-- Date Selection -->
 <h2>Date and Time range</h2>
   
   <form action="/setrange" method="post">
@@ -74,9 +74,27 @@
     });
   </script>
 
-
-<br /><input type="submit" value="Choose" />
+<br /><input type="submit" value="Set Range" />
 </form>
+
+<!-- Invite Users -->
+<form method='POST' action='/invite' id='invite' name='invite_form'>
+Invite new users: <textarea spellcheck="false" rows="4" cols="30" name='invite_field' id='invite_field' placeholder="example1@gmail.com
+example2@msn.com
+only addresses and newlines please!"></textarea>
+<br /><input type="submit" value="Send Emails" />
+</form>
+<!-- Process Times -->
+<form method='POST' action='process_times' id='process_times'>
+<input type='submit' value='Process Times'/>
+</form> 
+{% if g.results is defined %}
+	<h1>Results:</h1>
+	<p id='results'></p>
+	{% for result in g.results %}
+            <p>{{ result }}</p>
+	{% endfor %}
+{% endif %} 
 {% endif %}
 
 <!-- Create Meeting Screen -->

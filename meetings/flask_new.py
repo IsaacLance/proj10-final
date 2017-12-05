@@ -3,6 +3,7 @@ from copy import deepcopy
 from pymongo import MongoClient
 import emailer
 import bcrypt
+from timeCalc import time_parse
 ##
 import flask
 from flask import render_template
@@ -49,20 +50,18 @@ APPLICATION_NAME = 'MeetMe class project'
 #  Mongo Setup
 #############################
 MONGODB_URI = "mongodb://isaac:BigColor914!@ds044667.mlab.com:44667/322-proj-10"
-client = MongoClient(MONGODB_URI, connectTimeoutMS=30000)
-# db = client.get_default_database() this is probably meetings but just to be safe
-db = client.get_database("322-proj-10")  # db name
+mongo_client = MongoClient(MONGODB_URI, connectTimeoutMS=30000)
+# db = mongo_client.get_default_database() this is probably meetings but just to be safe
+db = mongo_client.get_database("322-proj-10")  # db name
 meetings = db.meetings  # collection name
 #############################
 # Email Setup
 #############################
 #Moved to external module "emailer"
-#############################
-#
-#  Pages (routed from URLs)
-#
-#############################
 
+#############################
+#  Index Pages
+#############################
 
 @app.route('/')
 @app.route('/index')
@@ -75,6 +74,14 @@ def index():
         init_session_values()
     return render_template('index.html')
 
+@app.route('/error')
+def error():
+    print("Error (!This route is only for development!)")
+    return
+
+#############################
+#  Meeting Organizer Pages
+#############################
 
 @app.route('/new_meeting', methods=['POST'])
 def new_meeting():
@@ -82,6 +89,7 @@ def new_meeting():
     #flask.session["init_meeting"] = True
     flask.g.init_meeting = True
     return render_template('meeting.html')
+
 @app.route('/add_meeting', methods=['POST'])
 def add_meeting():
     app.logger.debug("Adding meeting")
@@ -97,13 +105,13 @@ def add_meeting():
         print('password hash error!!!')
 
     #add meeting to db
-
     meetings.insert_one({
         'email': emailaddr,
         'meeting_id': meeting_id,
         'meeting_pw': hashed,
         'invitees' : [],
-        'range' : None
+        'range' : None,
+        'busy_times' : []
     })
     emailer.new_meeting(emailaddr, meeting_id, meeting_pw)
     #Now they need to go log in to their meeting
@@ -115,6 +123,7 @@ def meeting():
     #flask.session["init_meeting"] = False
     flask.g.login_meeting = True
     return render_template('meeting.html')
+
 @app.route('/meeting_sign_in', methods=['POST'])
 def meeting_sign_in():
     app.logger.debug("Signing in/Verifying Organizer")
@@ -136,12 +145,105 @@ def meeting_sign_in():
         flask.g.login_meeting = True
         return render_template('meeting.html')
     #set up session stuff since we were succesful
-    flask.session["invitees"] = meeting['invitees']
+    flask.session['invitees'] = meeting['invitees']
+    flask.session['organizer_email'] = meeting['email']
     #*meeting is just a copy so we still have to push these invitess to the db later
     flask.session['meeting_id'] = input_id
     return render_template('meeting.html')
 
-@app.route('/authorize')
+@app.route('/setrange', methods=['POST'])
+def setrange():
+    """
+    User chose a date range with the bootstrap daterange
+    widget.
+    """
+    app.logger.debug("Entering setrange")
+    flask.flash("Setrange gave us '{}'".format(
+        request.form.get('daterange')))
+
+    daterange = request.form.get('daterange')
+    timestart = request.form.get('timestart')
+    timeend = request.form.get('timeend')
+
+    flask.session['daterange'] = daterange
+    flask.session['begin_time'] = timestart
+    flask.session['end_time'] = timeend
+
+    daterange_parts = daterange.split()
+    flask.session['begin_date'] = interpret_date(daterange_parts[0])
+    flask.session['end_date'] = interpret_date(daterange_parts[2])
+
+    app.logger.debug("Setrange parsed {} - {}  dates as {} - {}".format(
+        daterange_parts[0], daterange_parts[1],
+        flask.session['begin_date'], flask.session['end_date']))
+
+    begin_d = pendulum.parse(flask.session['begin_date'])
+    end_d = pendulum.parse(flask.session['end_date'])
+    time_start = time_parse(flask.session['begin_time'])
+    time_end = time_parse(flask.session['end_time'])
+
+    meetings.update_one({"meeting_id": flask.session["meeting_id"]},
+                        {"$set": {"range": [begin_d.to_rfc3339_string(), end_d.to_rfc3339_string(),
+                                            time_start, time_end]}}
+                        )
+    meeting = meetings.find_one({'meeting_id': flask.session['meeting_id']})
+    #test it is stored correctly
+    pendform = pendulum.parse(meeting["range"][0])
+    print(type(meeting['range'][0]))
+    print(pendform.to_day_datetime_string())
+    return flask.render_template("meeting.html")
+
+@app.route('/invite', methods=['POST'])
+def send_invites():
+    #send invites
+    raw = flask.request.form['invite_field']
+    processed = raw.splitlines()
+    emailer.invite_group(processed, flask.session['meeting_id'], flask.session['organizer_email'])
+    #add invitees to db entry
+    meetings.update_one({"meeting_id" : flask.session["meeting_id"]},
+    {"$push": {"invitees": { "$each": processed }}})
+
+    return render_template('meeting.html')
+
+
+@app.route('/logout', methods=['POST', 'GET'])
+def logout():
+    flask.session.pop('credentials', None)
+    flask.session.pop('meeting_id', None)
+    flask.session.pop('invitees', None)
+    return flask.redirect(flask.url_for('index'))
+
+#############################
+#  Meeting Invitee Pages
+#############################
+
+@app.route('/invitee', methods=['POST'])
+def invitee():
+    app.logger.debug("Entering Invitee")
+    return render_template('invitee.html')
+
+@app.route('/invitee_login_prompt', methods=['POST', 'GET'])
+def invitee_login_prompt():
+    app.logger.debug("Entering invitee login prompt")
+    flask.g.login_invitee = True
+    return render_template('invitee.html')
+
+@app.route('/invitee_sign_in', methods=['POST'])
+def invitee_sign_in():
+    app.logger.debug("Signing in/Verifying Invitee")
+    input_id = flask.request.form['meeting_id']
+
+    meeting = meetings.find_one({'meeting_id': input_id})
+    if meeting is None:
+        print("Error: Meeting Not found")
+        flask.g.iderror = True
+        flask.g.login_invitee = True
+        return render_template('invitee.html')
+    flask.session['meeting_id'] = input_id
+
+    return flask.redirect(flask.url_for("google_authorize"))
+
+@app.route('/google_authorize')
 def google_authorize():
     app.logger.debug("Checking credentials for Google calendar access")
     credentials = valid_credentials()
@@ -152,31 +254,63 @@ def google_authorize():
     gcal_service = get_gcal_service(credentials)
     app.logger.debug("Returned from get_gcal_service")
     flask.g.calendars = list_calendars(gcal_service)
-    return render_template('meeting.html')
-
-@app.route('/submit_meeting', methods=['POST'])
-def submit_meeting():
-    app.logger.debug("Submitting meeting and emailing recipients")
-
-
-@app.route('/invitee', methods=['POST'])
-def invitee():
-    app.logger.debug("Entering Invitee")
     return render_template('invitee.html')
 
-@app.route('/error')
-def error():
-    print("We had an error")
+@app.route('/inv_logout', methods=['POST'])
+def invitee_logout():
+    flask.session.pop('credentials', None)
+    return flask.redirect(flask.url_for('index'))
+
+@app.route('/push_times' , methods=['GET', 'POST'])
+def check():
+    #get calendars
+    calendars = flask.request.form.getlist("check")
+    flask.session["cal_ids"] = calendars
+
+    if len(calendars) == 0:
+        return render_template('invitee.html')
+
+    credentials = valid_credentials()
+    gcal_service = get_gcal_service(credentials)
+    #get meeting
+    meeting = meetings.find_one({'meeting_id': flask.session['meeting_id']})
+    #Pendulum stuff
+    pend_now = pendulum.now()
+    pend_now.to_rfc3339_string()
+
+    busy_array = []
+    for calendar in calendars:
+        page_token = None
+        while True:
+            events = gcal_service.events().list(
+                calendarId=calendar, orderBy="startTime", singleEvents=True, timeMin=pend_now, pageToken=page_token).execute()
+
+            for event in events['items']:
+                # Check if event has valid value
+                if (('end' in event) and ('start' in event)):
+                    if ('dateTime' in event['end'])and('dateTime' in event['start']):
+                        estart = pendulum.parse(event['start']['dateTime'])
+                        eend = pendulum.parse(event['end']['dateTime'])
+                        busy_array.append((eend.to_rfc3339_string(), estart.to_rfc3339_string()))
+
+
+            page_token = events.get('nextPageToken')
+            if not page_token:
+                break
+
+    meetings.update_one({"meeting_id": flask.session["meeting_id"]},
+                        {"$push": {"busy_times": {"$each": busy_array}}})
+    flask.g.thanks = True
+    flask.render_template('invitee.html')
+
+@app.route('/process_times' , methods=['GET', 'POST'])
+def process():
     return
 
-@app.route('/logout', methods=['POST', 'GET'])
-def logout():
-    flask.session.pop('credentials', None)
-    flask.session.pop('meeting_id', None)
-    flask.session.pop('invitees', None)
-    return flask.redirect(flask.url_for('index'))
-#DO MORE
 
+#############################
+#  Authorization
+#############################
 
 def valid_credentials():
     """
@@ -204,7 +338,7 @@ def get_gcal_service(credentials):
     authorization. If authorization is already in effect,
     we'll just return with the authorization. Otherwise,
     control flow will be interrupted by authorization, and we'll
-    end up redirected back to /choose *without a service object*.
+    end up redirected back to /google_authorize *without a service object*.
     Then the second call will succeed without additional authorization.
     """
     app.logger.debug("Entering get_gcal_service")
@@ -253,7 +387,7 @@ def oauth2callback():
         ## but for the moment I'll just log it and go back to
         ## the main screen
         app.logger.debug("Got credentials")
-        return flask.redirect(flask.url_for('choose'))
+        return flask.redirect(flask.url_for('google_authorize'))
 
 
 #####
@@ -267,32 +401,7 @@ def oauth2callback():
 #
 #####
 
-@app.route('/setrange', methods=['POST'])
-def setrange():
-    """
-    User chose a date range with the bootstrap daterange
-    widget.
-    """
-    app.logger.debug("Entering setrange")
-    flask.flash("Setrange gave us '{}'".format(
-        request.form.get('daterange')))
 
-    daterange = request.form.get('daterange')
-    timestart = request.form.get('timestart')
-    timeend = request.form.get('timeend')
-
-    flask.session['daterange'] = daterange
-    flask.session['begin_time'] = timestart
-    flask.session['end_time'] = timeend
-
-    daterange_parts = daterange.split()
-    flask.session['begin_date'] = interpret_date(daterange_parts[0])
-    flask.session['end_date'] = interpret_date(daterange_parts[2])
-
-    app.logger.debug("Setrange parsed {} - {}  dates as {} - {}".format(
-        daterange_parts[0], daterange_parts[1],
-        flask.session['begin_date'], flask.session['end_date']))
-    return flask.redirect(flask.url_for("choose"))
 
 
 ####
@@ -377,9 +486,6 @@ def next_day(isotext):
 #  Functions (NOT pages) that return some information
 #
 ####
-
-def time_parse(string):
-    return (int(string[0:2]), int(string[3:5]))
 
 
 def list_calendars(service):
