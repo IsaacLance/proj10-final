@@ -34,20 +34,79 @@
 
 <body>
 <div class="container">
-
-<h1>Doogle&trade;</h1>
-<h2>What would you like to do?<h2>
-<form method='POST' action='/new_meeting'>
-	<input type='submit' value="New Meeting" align ='left'>
+<!-- Always provide a logout button to wipe some session variables -->
+<h1>Doogle</h1>
+{% if session['meeting_id'] is defined %}
+<h4>Logged in to: {{ session['meeting_id']  }}<h4>
+<form method ='POST' action='/logout' id ='logout' name='logout_form'>
+	<input type='submit' value="Log Out" align ='top' style="font-size:12px; height:20px; width:60px">
 </form>
 
-<form method='POST' action='/meeting'>
-	<input type='submit' value="Existing Meeting" align ='middle'>
-</form>
+<h2>Date and Time range</h2>
+  
+  <form action="/setrange" method="post">
+  Start time: <input type="time" name="timestart" value="09:00" size="12">
+  </select>
+  End time: <input type="time" name="timeend" value="17:00" size="12">
+  </select>
+  
+  <input type="text" name="daterange" size="12"
+    {% if session.daterange is defined %}
+         value="{{session.daterange}}"
+    {% endif %}
+     class="pull-down"
+     style="background: #fff; cursor: pointer; padding: 5px 10px;
+     border: 1px solid #ccc; width: 12em" >
+  <script type="text/javascript">
+  $(function() {
+  $('input[name="daterange"]').daterangepicker(
+    {    ranges: {
+           'Today': [moment(), moment()],
+           'Tomorrow':[moment().add(1, 'days'),
+                       moment().add(1, 'days')], 
+           'This week':[moment(), moment().endOf('week')],
+           'Next week':[moment().add(7, 'days').startOf('week'),
+                        moment().add(7, 'days').endOf('week')],
+           'This month':[moment(), moment().endOf('month')],
+           'Within two weeks':[moment(),moment().add(15, 'days')]
+        }}
+       );
+    });
+  </script>
 
-<form method='POST' action='/invitee'>
-	<input type='submit' value="I'm an Invitee" align ='right'>
+
+<br /><input type="submit" value="Choose" />
 </form>
+{% endif %}
+
+<!-- Create Meeting Screen -->
+{% if g.init_meeting is defined %}
+<h2>Create new meeting.<h2>
+<form method ='POST' action='/add_meeting' id='add_meeting' name='meeting_info'>
+	Your email: <input type='text' name='email'><br>
+	Meeting Name: <input type='text' name='meeting_id'><br>
+	Meeting Password: <input type='text' name='meeting_pw'><br>
+	<input type='submit' value='Submit'><br>
+</form>
+{% endif %}
+
+<!-- Login screen -->
+{% if g.login_meeting is defined %}
+	{% if g.passerror is defined %}
+	Password incorrect.
+	{% endif %}
+	{% if g.iderror is defined %}
+	Meeting name incorrect.
+	{% endif %}
+<h3>Sign in to your meeting.<h3>
+<form method ='POST' action='/meeting_sign_in' id='msign_in' name='msign_in'>
+	Meeting Name: <input type='text' name='meeting_id'><br>
+	Meeting Password: <input type='text' name='meeting_pw'><br>
+	<input type='submit' value='Submit'><br>
+	</form>
+{% endif %}
+
+
 
   </div>  <!-- container (for bootstrap) -->
   </body> </html>

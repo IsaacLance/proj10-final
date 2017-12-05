@@ -2,6 +2,7 @@
 from copy import deepcopy
 from pymongo import MongoClient
 import emailer
+import bcrypt
 ##
 import flask
 from flask import render_template
@@ -15,6 +16,7 @@ import logging
 # Date handling
 # import datetime # But we still need time
 from dateutil import tz  # For interpreting local times
+import arrow
 import pendulum
 import timeCalc
 
@@ -54,7 +56,7 @@ meetings = db.meetings  # collection name
 #############################
 # Email Setup
 #############################
-
+#Moved to external module "emailer"
 #############################
 #
 #  Pages (routed from URLs)
@@ -65,6 +67,9 @@ meetings = db.meetings  # collection name
 @app.route('/')
 @app.route('/index')
 def index():
+    if 'meeting_id' in flask.session:
+        return flask.redirect(flask.url_for('logout'))
+
     app.logger.debug("Entering index")
     if 'begin_date' not in flask.session:
         init_session_values()
@@ -83,27 +88,72 @@ def add_meeting():
     emailaddr = flask.request.form['email']
     meeting_id = flask.request.form['meeting_id']
     meeting_pw = flask.request.form['meeting_pw']
+    #yummy salted hashbrowns (salt/hashed password (with ketchup))
+    b_pw = meeting_pw.encode('UTF-8') ###string needs to be in form: b'string'
+    hashed = bcrypt.hashpw(b_pw, bcrypt.gensalt())
+    if bcrypt.checkpw(b_pw, hashed):
+        print('password hashed successfully')
+    else:
+        print('password hash error!!!')
+
     #add meeting to db
 
     meetings.insert_one({
         'email': emailaddr,
         'meeting_id': meeting_id,
-        'meeting_pw': meeting_pw,
+        'meeting_pw': hashed,
         'invitees' : [],
         'range' : None
     })
     emailer.new_meeting(emailaddr, meeting_id, meeting_pw)
-    return flask.redirect(flask.url_for('meeting'))
+    #Now they need to go log in to their meeting
+    return flask.redirect(flask.url_for('meeting_login_prompt'))
 
-@app.route('/meeting', methods=['POST', 'GET'])
+@app.route('/meeting_login_prompt', methods=['POST', 'GET'])
 def meeting():
-    app.logger.debug("Entering meeting")
+    app.logger.debug("Entering meeting login prompt")
     #flask.session["init_meeting"] = False
-    flask.g.existing_meeting = True
+    flask.g.login_meeting = True
     return render_template('meeting.html')
-@app.route('/meeting_sign_in', methods=['POST]')
+@app.route('/meeting_sign_in', methods=['POST'])
 def meeting_sign_in():
-    app.logger.debug("Signing in/ Verifying Organizer")
+    app.logger.debug("Signing in/Verifying Organizer")
+    input_id = flask.request.form['meeting_id']
+    input_pw = flask.request.form['meeting_pw']
+    b_pw = input_pw.encode('UTF-8')  ###string needs to be in form: b'string'
+
+    meeting = meetings.find_one({'meeting_id': input_id})
+    if meeting is None:
+        print("Error: Meeting Not found")
+        flask.g.iderror = True
+        flask.g.login_meeting = True
+        return render_template('meeting.html')
+    if bcrypt.checkpw(b_pw, meeting['meeting_pw']):
+        print('password checked successfully')
+    else:
+        print('password incorrect!!!')
+        flask.g.passerror = True
+        flask.g.login_meeting = True
+        return render_template('meeting.html')
+    #set up session stuff since we were succesful
+    flask.session["invitees"] = meeting['invitees']
+    #*meeting is just a copy so we still have to push these invitess to the db later
+    flask.session['meeting_id'] = input_id
+    return render_template('meeting.html')
+
+@app.route('/authorize')
+def google_authorize():
+    app.logger.debug("Checking credentials for Google calendar access")
+    credentials = valid_credentials()
+    if not credentials:
+        app.logger.debug("Redirecting to authorization")
+        return flask.redirect(flask.url_for('oauth2callback'))
+
+    gcal_service = get_gcal_service(credentials)
+    app.logger.debug("Returned from get_gcal_service")
+    flask.g.calendars = list_calendars(gcal_service)
+    return render_template('meeting.html')
+
 @app.route('/submit_meeting', methods=['POST'])
 def submit_meeting():
     app.logger.debug("Submitting meeting and emailing recipients")
@@ -113,6 +163,19 @@ def submit_meeting():
 def invitee():
     app.logger.debug("Entering Invitee")
     return render_template('invitee.html')
+
+@app.route('/error')
+def error():
+    print("We had an error")
+    return
+
+@app.route('/logout', methods=['POST', 'GET'])
+def logout():
+    flask.session.pop('credentials', None)
+    flask.session.pop('meeting_id', None)
+    flask.session.pop('invitees', None)
+    return flask.redirect(flask.url_for('index'))
+#DO MORE
 
 
 def valid_credentials():
