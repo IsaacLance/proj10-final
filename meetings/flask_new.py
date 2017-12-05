@@ -283,7 +283,7 @@ def check():
         page_token = None
         while True:
             events = gcal_service.events().list(
-                calendarId=calendar, orderBy="startTime", singleEvents=True, timeMin=pend_now, pageToken=page_token).execute()
+                calendarId=calendar, orderBy="startTime", singleEvents=True, timeMin=pend_now, timeMax=pend_now.add(years=1), pageToken=page_token).execute()
 
             for event in events['items']:
                 # Check if event has valid value
@@ -301,7 +301,7 @@ def check():
     meetings.update_one({"meeting_id": flask.session["meeting_id"]},
                         {"$push": {"busy_times": {"$each": busy_array}}})
     flask.g.thanks = True
-    flask.render_template('invitee.html')
+    return flask.render_template('invitee.html')
 
 @app.route('/process_times' , methods=['GET', 'POST'])
 def process():
